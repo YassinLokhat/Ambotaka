@@ -1,0 +1,11 @@
+# Collecte des métriques RoadPulse. En production : METRICS_TOKEN obligatoire côté API (jeton Bearer).
+global:
+  scrape_interval: 30s
+scrape_configs:
+  - job_name: roadpulse-api
+    metrics_path: /api/v1/metrics
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ['host.docker.internal:3000']   # adapter : nom du service API en déploiement

@@ -1,0 +1,28 @@
+# Dependencies
+**/node_modules/
+
+# Environment files (keep templates versionable)
+.env
+.env.*
+!.env.example
+
+# Build output and test coverage
+/admin-web/out/
+/backend/dist/
+coverage/
+*.tsbuildinfo
+
+# Expo generated files
+/mobile-android/.expo/
+
+# Android signing keys
+*.keystore
+*.jks
+
+# Logs and local OS/editor files
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/

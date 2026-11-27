@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: roadpulse
+      POSTGRES_PASSWORD: roadpulse
+      POSTGRES_DB: roadpulse
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roadpulse"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+  backend:
+    profiles: ["full"]
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://roadpulse:roadpulse@postgres:5432/roadpulse
+      REDIS_URL: redis://redis:6379
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.55.0
+    volumes: ["./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["9090:9090"]
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:11.3.0
+    ports: ["3002:3000"]
+    depends_on: [prometheus]
+    # Aucun tableau de bord n'est provisionné : ajouter la source Prometheus (http://prometheus:9090) puis importer/créer les vues.
+volumes:
+  pgdata:
