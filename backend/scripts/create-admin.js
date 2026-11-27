@@ -1,13 +1,14 @@
 // Création du premier administrateur (amorçage) : node scripts/create-admin.js <identifiant> <mot_de_passe> [ROLE=SUPER_ADMIN]
 const { hash } = require('@node-rs/argon2');
 const { Client } = require('pg');
+const databaseUrl = require('./database-url');
 
 (async () => {
   const [username, password, role = 'SUPER_ADMIN'] = process.argv.slice(2);
   if (!username || !password) { console.error('Usage: node scripts/create-admin.js <identifiant> <mot_de_passe> [ROLE]'); process.exit(1); }
   if (!/^[a-z0-9._-]{3,32}$/.test(username)) { console.error('Identifiant invalide (3-32 car. : a-z 0-9 . _ -)'); process.exit(1); }
   if (password.length < 12) { console.error('Mot de passe : 12 caractères minimum.'); process.exit(1); }
-  const c = new Client({ connectionString: process.env.DATABASE_URL || 'postgres://roadpulse:roadpulse@localhost:5432/roadpulse' });
+  const c = new Client({ connectionString: databaseUrl() });
   await c.connect();
   const r = await c.query('SELECT id FROM roles WHERE name=$1', [role]);
   if (!r.rowCount) { console.error(`Rôle inconnu : ${role}`); process.exit(1); }

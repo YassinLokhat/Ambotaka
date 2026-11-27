@@ -2,10 +2,11 @@
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
+const databaseUrl = require('./database-url');
 
 (async () => {
   const client = new Client({
-    connectionString: process.env.DATABASE_URL || 'postgres://roadpulse:roadpulse@localhost:5432/roadpulse',
+    connectionString: databaseUrl(),
   });
   await client.connect();
   await client.query(

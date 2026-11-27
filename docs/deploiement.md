@@ -20,12 +20,15 @@ Ce document liste **ce qui reste à faire hors du code**. Les éléments marqué
 
 Le Blueprint [`render.yaml`](../render.yaml) déclare l'API NestJS en runtime Node natif, Render Postgres et Render Key Value (compatible Redis/Valkey). Il n'utilise ni le Dockerfile du backend ni `docker-compose.yml`.
 
-1. Pousser `dev` sur GitHub, puis dans Render choisir **New > Blueprint** et connecter le dépôt/la branche `dev`.
-2. Vérifier les ressources et leurs coûts avant de confirmer : ce Blueprint choisit les plans payants `0.5c-512mb` (API), `0.5c-1g` (Postgres) et `256mb` (Key Value), dans la région Singapore.
-3. Lors de la première synchronisation, saisir `MAP_API_KEY` comme secret. `JWT_SECRET` et `METRICS_TOKEN` sont générés par Render. La clé TomTom serveur ne doit jamais être mise dans le dépôt.
-4. Render compile l'API, lance `npm run migrate` avant le démarrage et vérifie `/api/v1/health` (Postgres **et** Redis doivent répondre). La migration active PostGIS, disponible sur Render Postgres.
-5. Après le premier déploiement, ouvrir le Shell du service `roadpulse-api` et créer le premier administrateur : `node scripts/create-admin.js <identifiant> '<mot de passe ≥ 12 caractères>'`.
-6. Utiliser l'URL `https://roadpulse-api.onrender.com/api/v1` comme `EXPO_PUBLIC_API_URL` dans les profils EAS. Pour héberger aussi `admin-web`, définir son `BACKEND_URL` sur cette URL avec `/api/v1`.
+1. Dans Render, choisir **New > Blueprint** (pas **New > Web Service**), connecter le dépôt GitHub `YassinLokhat/Ambotaka`, sélectionner la branche `dev` et le Blueprint `/render.yaml` à la racine.
+2. Si un service `roadpulse-api` a déjà été créé manuellement avec Docker, ne relance pas son déploiement. Examine le plan de synchronisation Blueprint : il doit passer l'API en runtime Node et raccorder `roadpulse-db` et `roadpulse-redis`. Arrête-toi si Render propose de supprimer une base ou un stockage dont tu veux garder les données. Ne supprime jamais Postgres avant une sauvegarde vérifiée.
+3. Vérifier les ressources et leurs coûts avant de confirmer : le Blueprint choisit les plans payants `0.5c-512mb` (API), `0.5c-1g` (Postgres) et `256mb` (Key Value), dans la région Singapore.
+4. Lors de la première synchronisation, saisir `MAP_API_KEY` comme secret. `JWT_SECRET` et `METRICS_TOKEN` sont générés par Render. Ne mets jamais la clé TomTom serveur dans GitHub.
+5. Le build attendu exécute `npm ci`, `npm run build`, puis `npm run migrate` avant le démarrage `npm run start`. Les logs ne doivent pas montrer `load build definition from Dockerfile`. `/api/v1/health` renvoie 200 uniquement lorsque Postgres **et** Redis répondent. La migration active PostGIS, pris en charge par Render Postgres.
+6. Après le premier déploiement, ouvrir le Shell du service `roadpulse-api` et créer le premier administrateur : `node scripts/create-admin.js <identifiant> '<mot de passe ≥ 12 caractères>'`.
+7. Utiliser l'URL `https://roadpulse-api.onrender.com/api/v1` comme `EXPO_PUBLIC_API_URL` dans les profils EAS. Pour héberger aussi `admin-web`, définir son `BACKEND_URL` sur cette URL avec `/api/v1`.
+
+**Diagnostic du déploiement précédent :** les lignes `load build definition from Dockerfile` et `node:20-alpine` prouvent que Render utilisait un Web Service Docker manuel, pas ce Blueprint. Le `ECONNREFUSED localhost:5432` venait ensuite de l'absence de `DATABASE_URL` dans ce service. En production, Nest et les scripts échouent maintenant avec un message explicite si une variable requise manque, au lieu d'utiliser localhost.
 
 Les plans gratuits ne sont pas adaptés à des données durables : le service web s'endort, la base Postgres gratuite expire après 30 jours et le Key Value gratuit perd ses données lors d'un redémarrage. Les prix exacts dépendent de Render et sont affichés avant la création. Le backend peut rester sur Render natif même si Docker est retiré du flux de déploiement; les fichiers Docker existants peuvent être conservés pour un usage local.
 
