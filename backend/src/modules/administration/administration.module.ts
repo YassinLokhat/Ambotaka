@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AdminConfigService } from './admin-config.service';
 import { AdminOpsService } from './admin-ops.service';
 import { AdminUsersService } from './admin-users.service';
@@ -22,7 +23,7 @@ import { AuditService } from './audit.service';
     }),
   ],
   controllers: [AdminAuthController, AdminController],
-  providers: [AdminAuthService, AdminUsersService, AdminConfigService, AdminOpsService, AuditService, AdminGuard],
+  providers: [AdminAuthService, AdminBootstrapService, AdminUsersService, AdminConfigService, AdminOpsService, AuditService, AdminGuard],
   exports: [AdminGuard, AdminAuthService, AuditService],
 })
 export class AdministrationModule {}

@@ -9,6 +9,10 @@ beforeEach(() => {
     previousValues.set(name, process.env[name]);
     delete process.env[name];
   }
+  for (const name of ['ADMIN_BOOTSTRAP_USERNAME', 'ADMIN_BOOTSTRAP_PASSWORD']) {
+    previousValues.set(name, process.env[name]);
+    delete process.env[name];
+  }
 });
 
 afterEach(() => {
@@ -33,6 +37,17 @@ describe('configuration', () => {
     expect(configuration()).toMatchObject({
       databaseUrl: 'postgres://roadpulse:roadpulse@localhost:5432/roadpulse',
       redisUrl: 'redis://localhost:6379',
+    });
+  });
+
+  it('loads optional admin bootstrap credentials from the environment', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.ADMIN_BOOTSTRAP_USERNAME = ' initial.admin ';
+    process.env.ADMIN_BOOTSTRAP_PASSWORD = 'a-strong-password';
+
+    expect(configuration()).toMatchObject({
+      adminBootstrapUsername: 'initial.admin',
+      adminBootstrapPassword: 'a-strong-password',
     });
   });
 });

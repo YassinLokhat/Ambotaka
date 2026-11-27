@@ -34,6 +34,8 @@
 .tabActive { color: var(--green); background: var(--green-soft); }
 .connection { display: inline-flex; justify-self: end; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 99px; color: #7a8582; font-size: 11px; font-weight: 700; }
 .connectionOnline { color: var(--green); border-color: #bfdfd1; background: #f3faf6; }
+.connectionSpinner { animation: connectionSpin 1s linear infinite; }
+@keyframes connectionSpin { to { transform: rotate(360deg); } }
 
 .workspace { display: grid; flex: 1; min-height: calc(100vh - 72px); grid-template-columns: minmax(340px, 390px) minmax(0, 1fr); }
 .sidebar { z-index: 400; display: flex; min-height: 0; flex-direction: column; padding: 27px 23px 15px; border-right: 1px solid var(--line); background: #fff; }
@@ -85,6 +87,13 @@
 .reportButton { display: flex; min-height: 43px; align-items: center; justify-content: center; gap: 8px; border: 1px solid #f0c4bd; border-radius: 8px; color: #bd4d40; background: #fff8f6; font: 700 12px 'DM Sans', sans-serif; cursor: pointer; }
 .reportButton:hover { background: #fff0ec; }
 .sidebarFooter { display: flex; justify-content: space-between; margin-top: 13px; color: #9aa5a1; font-size: 9px; }
+.nearbyIncidents { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); }
+.incidentRow { display: flex; width: 100%; align-items: center; gap: 9px; padding: 8px 2px; border: 0; border-top: 1px solid #edf1ef; text-align: left; color: var(--ink); background: transparent; cursor: pointer; }
+.incidentRow:hover { background: #f7faf8; }
+.incidentDot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--coral); }
+.incidentRow strong, .incidentRow small { display: block; }
+.incidentRow strong { font-size: 11px; }
+.incidentRow small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .navigationPanel { padding-top: 4px; }
 .navDestination { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; color: var(--green); font: 600 19px 'Space Grotesk', sans-serif; }
 .navHint { color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -97,6 +106,8 @@
 .mapLoading { display: grid; width: 100%; height: 100%; min-height: 500px; place-items: center; color: var(--muted); font-size: 13px; }
 .mapBadge { position: absolute; z-index: 450; top: 17px; left: 18px; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid rgba(220, 229, 225, .9); border-radius: 8px; color: #344943; background: rgba(255,255,255,.94); box-shadow: 0 3px 12px rgba(28, 54, 46, .08); font-size: 11px; font-weight: 700; pointer-events: none; }
 .liveDot { width: 7px; height: 7px; border-radius: 50%; background: #38a279; box-shadow: 0 0 0 3px #dff3e9; }
+.liveDotWarning { background: #d89b23; box-shadow: 0 0 0 3px #fbf0d7; }
+.liveDotError { background: #c65a51; box-shadow: 0 0 0 3px #f7e3e1; }
 .mapLocate { position: absolute; z-index: 450; right: 18px; bottom: 26px; display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #dce5e1; border-radius: 9px; color: #314a42; background: #fff; box-shadow: 0 3px 12px rgba(28, 54, 46, .12); cursor: pointer; }
 .mapLocate:hover { color: var(--green); }
 .workspaceSingle { display: flex; justify-content: center; padding: 42px 24px; background: #f3f7f5; }
@@ -127,6 +138,10 @@
 .switch input:checked + span::before { transform: translateX(18px); }
 .switch input:focus-visible + span { outline: 3px solid #a9d8c4; outline-offset: 2px; }
 .privacySection { margin-top: 30px; padding-top: 23px; border-top: 1px solid var(--line); }
+.deletionList { margin-top: 22px; }
+.deletionList h2 { margin: 0 0 8px; font: 600 15px 'Space Grotesk', sans-serif; }
+.deletionRow { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 11px; }
+.deletionRow span { color: var(--muted); text-align: right; }
 .deleteButton { display: inline-flex; min-height: 39px; align-items: center; gap: 8px; margin-top: 15px; padding: 0 12px; border: 1px solid #edc5bf; border-radius: 7px; color: #b64c40; background: #fff; font: 600 12px 'DM Sans', sans-serif; cursor: pointer; }
 .deleteButton:hover { background: #fff5f2; }
 .privacyFootnote { margin-top: 28px; color: var(--muted); font-size: 11px; }
@@ -142,6 +157,14 @@
 .fieldLabel textarea { resize: vertical; padding: 10px; }
 .optional { color: #8b9994; font-weight: 400; }
 .reportLocation { display: flex; align-items: center; gap: 6px; margin-top: 13px; color: var(--muted); font-size: 10px; }
+.locationAction { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 5px 0; border: 0; color: var(--green); background: transparent; font: 600 11px 'DM Sans', sans-serif; cursor: pointer; }
+.locationAction:hover { text-decoration: underline; }
+.incidentDescription { margin: 0 0 14px; color: #51645e; font-size: 13px; line-height: 1.5; }
+.incidentFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; border-radius: 8px; background: #f3f7f5; color: #53665f; font-size: 10px; }
+.incidentActions { display: flex; gap: 10px; margin-top: 8px; }
+.incidentActions > * { flex: 1; }
+.incidentActions .deleteButton { justify-content: center; margin-top: 13px; }
+.alreadyResponded { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
 .toast { position: fixed; z-index: 1300; right: 20px; bottom: 20px; display: flex; max-width: min(420px, calc(100vw - 32px)); align-items: center; gap: 9px; padding: 13px 15px; border: 1px solid #c8dfd3; border-radius: 8px; color: #1d5e48; background: #f7fcf9; box-shadow: 0 8px 24px rgba(20, 50, 37, .13); font-size: 12px; }
 
 @media (max-width: 800px) {

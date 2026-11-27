@@ -1,6 +1,8 @@
 import { API_URL } from './config';
 import { getInstallationId } from './installation';
 
+const API_REQUEST_TIMEOUT_MS = 90_000;
+
 export class ApiError extends Error {
   constructor(public code: string, message: string, public status: number) { super(message); }
 }
@@ -11,7 +13,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     res = await fetch(`${API_URL}${path}`, {
       ...init,
       headers: { 'Content-Type': 'application/json', 'X-Installation-Id': await getInstallationId(), ...(init?.headers ?? {}) },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
     });
   } catch {
     throw new ApiError('NETWORK_ERROR', 'Impossible de joindre le serveur. Vérifiez votre connexion.', 0);

@@ -3,11 +3,11 @@
 import dynamic from 'next/dynamic';
 import { FormEvent, useEffect, useState } from 'react';
 import {
-  ArrowUpRight, Check, Clock3, LocateFixed, Map as MapIcon, MapPin, Navigation,
+  ArrowUpRight, Check, Clock3, LoaderCircle, LocateFixed, Map as MapIcon, MapPin, Navigation,
   Search, ShieldCheck, Trash2, TriangleAlert, WifiOff, X,
 } from 'lucide-react';
 import styles from './page.module.css';
-import type { MapIncident, MapPoint } from '@/components/application-map';
+import type { MapIncident, MapPoint, MapTraffic } from '@/components/application-map';
 
 const ApplicationMap = dynamic(() => import('@/components/application-map'), {
   ssr: false,
@@ -25,6 +25,15 @@ type RouteOption = {
 };
 type Trip = { id: string; destination: string; startedAt: string; distanceMeters: number; durationSeconds: number };
 type IncidentType = 'ACCIDENT' | 'EMBOUTEILLAGE' | 'ROUTE_BLOQUEE' | 'TRAVAUX' | 'DANGER' | 'AUTRE';
+type Incident = {
+  id: string; type: IncidentType; description: string | null; status: string;
+  latitude: number; longitude: number; confidence: number; reporterCount: number;
+  confirmationCount: number; contestationCount: number; distanceMeters?: number;
+  myResponse?: null | 'REPORTER' | 'CONFIRMATION' | 'CONTESTATION';
+};
+type DeletionRequest = {
+  id: string; status: 'EN_COURS' | 'CONFIRMEE' | 'ECHEC'; types: string[]; createdAt: string; completedAt: string | null;
+};
 
 const DEFAULT_ORIGIN: MapPoint = { lat: -18.8792, lon: 47.5079 };
 const POLICY_VERSION = '2026-11-v1';
@@ -40,6 +49,12 @@ const DEMO_PLACES: Place[] = [
 const TYPE_LABELS: Record<IncidentType, string> = {
   ACCIDENT: 'Accident', EMBOUTEILLAGE: 'Embouteillage', ROUTE_BLOQUEE: 'Route bloquée',
   TRAVAUX: 'Travaux', DANGER: 'Danger', AUTRE: 'Autre',
+};
+const INCIDENT_STATUS_LABELS: Record<string, string> = {
+  DETECTE: 'Détecté', CONFIRME: 'Confirmé', EN_COURS: 'En cours', RESOLU: 'Résolu', EXPIRE: 'Expiré',
+};
+const DELETION_STATUS_LABELS: Record<DeletionRequest['status'], string> = {
+  EN_COURS: 'En cours', CONFIRMEE: 'Confirmée', ECHEC: 'Échec',
 };
 
 function newId() {
@@ -96,10 +111,15 @@ export default function ApplicationPage() {
   const [suggestions, setSuggestions] = useState<Place[]>([]);
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [incidents, setIncidents] = useState<MapIncident[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [trafficSegments, setTrafficSegments] = useState<MapTraffic[]>([]);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [consent, setConsent] = useState(false);
+  const [consent, setConsent] = useState<boolean | null>(null);
+  const [deletionRequests, setDeletionRequests] = useState<DeletionRequest[]>([]);
+  const [trafficStatus, setTrafficStatus] = useState<'CHARGEMENT' | 'OK' | 'DONNEES_INSUFFISANTES' | 'ERREUR'>('CHARGEMENT');
   const [apiOnline, setApiOnline] = useState(false);
+  const [apiChecking, setApiChecking] = useState(true);
   const [searching, setSearching] = useState(false);
   const [navigationActive, setNavigationActive] = useState(false);
   const [navigationStartedAt, setNavigationStartedAt] = useState<number | null>(null);
@@ -109,7 +129,11 @@ export default function ApplicationPage() {
   const [toast, setToast] = useState('');
 
   const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
+  const selectedIncident = incidents.find((incident) => incident.id === selectedIncidentId) ?? null;
   const routeCoordinates = selectedRoute?.geometry.coordinates ?? [];
+  const mapIncidents = incidents.map((incident) => ({
+    id: incident.id, lat: incident.latitude, lon: incident.longitude, status: incident.status,
+  }));
 
   useEffect(() => {
     let id = localStorage.getItem('roadpulse-web-installation');
@@ -118,15 +142,57 @@ export default function ApplicationPage() {
       localStorage.setItem('roadpulse-web-installation', id);
     }
     setInstallationId(id);
-    setConsent(localStorage.getItem('roadpulse-web-consent') === 'true');
     try {
-      setTrips(JSON.parse(localStorage.getItem('roadpulse-web-trips') ?? '[]') as Trip[]);
-      setIncidents(JSON.parse(localStorage.getItem('roadpulse-web-incidents') ?? '[]') as MapIncident[]);
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const saved = JSON.parse(localStorage.getItem('roadpulse-web-trips') ?? '[]') as Trip[];
+      const retained = saved.filter((trip) => new Date(trip.startedAt).getTime() >= cutoff);
+      setTrips(retained);
+      localStorage.setItem('roadpulse-web-trips', JSON.stringify(retained));
     } catch {
       localStorage.removeItem('roadpulse-web-trips');
-      localStorage.removeItem('roadpulse-web-incidents');
     }
   }, []);
+
+  useEffect(() => {
+    if (!installationId) return;
+    let cancelled = false;
+    const query = `lat=${origin.lat}&lon=${origin.lon}&radiusMeters=5000`;
+    setApiChecking(true);
+    setTrafficStatus('CHARGEMENT');
+    void Promise.allSettled([
+      apiRequest<{ incidents: Incident[] }>(`incidents?${query}`, installationId),
+      apiRequest<{ status: 'OK' | 'DONNEES_INSUFFISANTES'; segments: MapTraffic[] }>(`traffic?${origin.lat ? `lat=${origin.lat}&lon=${origin.lon}` : ''}&radiusMeters=3000`, installationId),
+    ]).then(([incidentResult, trafficResult]) => {
+      if (cancelled) return;
+      const incidentsOk = incidentResult.status === 'fulfilled';
+      const trafficOk = trafficResult.status === 'fulfilled';
+      if (incidentsOk) setIncidents(incidentResult.value.incidents);
+      if (trafficOk) {
+        setTrafficSegments(trafficResult.value.segments);
+        setTrafficStatus(trafficResult.value.status);
+      } else {
+        setTrafficSegments([]);
+        setTrafficStatus('ERREUR');
+      }
+      setApiOnline(incidentsOk || trafficOk);
+      setApiChecking(false);
+    });
+    return () => { cancelled = true; };
+  }, [origin, installationId]);
+
+  useEffect(() => {
+    if (!installationId) return;
+    let cancelled = false;
+    void Promise.allSettled([
+      apiRequest<{ statistics: { granted: boolean | null } }>('consents', installationId),
+      apiRequest<{ requests: DeletionRequest[] }>('deletion-requests', installationId),
+    ]).then(([consentResult, deletionResult]) => {
+      if (cancelled) return;
+      if (consentResult.status === 'fulfilled') setConsent(consentResult.value.statistics.granted);
+      if (deletionResult.status === 'fulfilled') setDeletionRequests(deletionResult.value.requests);
+    });
+    return () => { cancelled = true; };
+  }, [installationId]);
 
   useEffect(() => {
     if (query.trim().length < 2 || !installationId || destination?.name === query.trim()) {
@@ -252,50 +318,46 @@ export default function ApplicationPage() {
 
   async function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const incident: MapIncident = { id: newId(), lat: origin.lat, lon: origin.lon, status: 'DETECTE' };
-    let sent = false;
+    if (originLabel !== 'Ma position') {
+      setToast('Utilise ta position réelle avant d’envoyer un signalement.');
+      return;
+    }
     try {
-      const result = await apiRequest<{ incident: { id: string; latitude: number; longitude: number; status: string } }>('reports', installationId, {
+      const result = await apiRequest<{ incident: Incident }>('reports', installationId, {
         method: 'POST',
         body: JSON.stringify({ type: reportType, description: reportDescription || undefined, lat: origin.lat, lon: origin.lon, clientReportId: newId() }),
       });
-      incident.id = result.incident.id;
-      incident.lat = result.incident.latitude;
-      incident.lon = result.incident.longitude;
-      incident.status = result.incident.status;
-      sent = true;
+      setIncidents((current) => [result.incident, ...current.filter((item) => item.id !== result.incident.id)]);
       setApiOnline(true);
-    } catch {
+      setReportOpen(false);
+      setReportDescription('');
+      setToast('Signalement transmis et associé à un incident.');
+    } catch (error) {
       setApiOnline(false);
+      setToast(error instanceof Error ? `Signalement non transmis : ${error.message}` : 'Signalement non transmis. Vérifiez la connexion.');
     }
-    const next = [incident, ...incidents];
-    setIncidents(next);
-    localStorage.setItem('roadpulse-web-incidents', JSON.stringify(next));
-    setReportOpen(false);
-    setReportDescription('');
-    setToast(sent ? 'Signalement envoyé.' : 'Signalement ajouté au mode démo de ce navigateur.');
   }
 
   async function updateConsent(granted: boolean) {
-    setConsent(granted);
-    localStorage.setItem('roadpulse-web-consent', String(granted));
     try {
-      await apiRequest('consents/statistics', installationId, {
+      const result = await apiRequest<{ statistics: { granted: boolean | null } }>('consents/statistics', installationId, {
         method: 'PUT', body: JSON.stringify({ granted, policyVersion: POLICY_VERSION }),
       });
+      setConsent(result.statistics.granted);
       setApiOnline(true);
       setToast('Préférence enregistrée.');
     } catch {
-      setToast('Préférence enregistrée sur cet appareil; synchronisation serveur indisponible.');
+      setToast('Préférence non enregistrée : le serveur est indisponible.');
     }
   }
 
   async function requestDataDeletion() {
     if (!window.confirm('Demander la suppression de toutes vos données côté serveur ?')) return;
     try {
-      await apiRequest('deletion-requests', installationId, {
+      const result = await apiRequest<{ request: DeletionRequest }>('deletion-requests', installationId, {
         method: 'POST', body: JSON.stringify({ idempotencyKey: newId(), types: ['ALL'] }),
       });
+      setDeletionRequests((current) => [result.request, ...current.filter((request) => request.id !== result.request.id)]);
       setToast('Demande de suppression transmise au serveur.');
     } catch {
       setToast('API indisponible : la demande n’a pas été transmise.');
@@ -306,6 +368,20 @@ export default function ApplicationPage() {
     const next = trips.filter((trip) => trip.id !== id);
     setTrips(next);
     localStorage.setItem('roadpulse-web-trips', JSON.stringify(next));
+  }
+
+  async function respondToIncident(kind: 'CONFIRMATION' | 'CONTESTATION') {
+    if (!selectedIncidentId) return;
+    try {
+      const result = await apiRequest<{ incident: Incident }>(`incidents/${selectedIncidentId}/confirmations`, installationId, {
+        method: 'POST', body: JSON.stringify({ kind }),
+      });
+      setIncidents((current) => current.map((incident) => incident.id === result.incident.id ? result.incident : incident));
+      setToast(kind === 'CONFIRMATION' ? 'Incident confirmé.' : 'Incident contesté.');
+      setApiOnline(true);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Réponse non transmise.');
+    }
   }
 
   const tabs: { id: Tab; label: string; icon: typeof MapIcon }[] = [
@@ -329,8 +405,8 @@ export default function ApplicationPage() {
           ))}
         </nav>
         <div className={`${styles.connection} ${apiOnline ? styles.connectionOnline : ''}`}>
-          {apiOnline ? <Check size={14} /> : <WifiOff size={14} />}
-          {apiOnline ? 'API connectée' : 'Mode démo'}
+          {apiChecking ? <LoaderCircle size={14} className={styles.connectionSpinner} /> : apiOnline ? <Check size={14} /> : <WifiOff size={14} />}
+          {apiChecking ? 'Connexion à l’API…' : apiOnline ? 'API connectée' : 'Mode démo'}
         </div>
       </header>
 
@@ -344,7 +420,7 @@ export default function ApplicationPage() {
                   <div className={styles.navDestination}><Navigation size={20} /><span>Vers {destination.name}</span></div>
                   <p className={styles.navHint}>La navigation GPS en temps réel est disponible dans l’application mobile.</p>
                   <div className={styles.navStats}><strong>{formatDuration(selectedRoute.durationSeconds)}</strong><span>{formatDistance(selectedRoute.distanceMeters)}</span></div>
-                  <button type="button" className={styles.primaryButton} onClick={finishNavigation}><Check size={17} /> Terminer le trajet</button>
+                  <button type="button" className={styles.primaryButton} onClick={finishNavigation}><Check size={17} /> Terminer l’aperçu</button>
                 </section>
               ) : (
                 <>
@@ -392,7 +468,9 @@ export default function ApplicationPage() {
                             <strong>{formatDuration(route.durationSeconds)}</strong>
                             <small>{formatDistance(route.distanceMeters)} · {index === 0 ? 'Le plus rapide' : 'Alternative'}</small>
                           </span>
-                          <span className={styles.routeTag}>{route.estimationSource === 'DEMO' ? 'APERÇU' : 'TRAFIC'}</span>
+                          <span className={styles.routeTag}>
+                            {route.estimationSource === 'DEMO' ? 'DÉMO' : route.estimationSource === 'TRAFIC_RECENT' ? 'TRAFIC MESURÉ' : 'DURÉE DE RÉFÉRENCE'}
+                          </span>
                         </button>
                       ))}
                       {selectedRoute && <button type="button" className={styles.primaryButton} onClick={() => { setNavigationActive(true); setNavigationStartedAt(Date.now()); }}><Navigation size={17} /> Démarrer l’aperçu</button>}
@@ -402,13 +480,35 @@ export default function ApplicationPage() {
                   {!destination && <p className={styles.mapHint}>Choisissez une destination ou touchez directement la carte.</p>}
                   <div className={styles.sidebarSpacer} />
                   <button type="button" className={styles.reportButton} onClick={() => setReportOpen(true)}><TriangleAlert size={17} /> Signaler un incident</button>
+                  <section className={styles.nearbyIncidents}>
+                    <div className={styles.sectionTitle}><h2>Incidents proches</h2><span>{incidents.length}</span></div>
+                    {incidents.length === 0 ? (
+                      <p className={styles.loadingRoutes}>Aucun incident actif dans le rayon consulté.</p>
+                    ) : incidents.slice(0, 5).map((incident) => (
+                      <button key={incident.id} type="button" className={styles.incidentRow} onClick={() => setSelectedIncidentId(incident.id)}>
+                        <span className={styles.incidentDot} />
+                        <span><strong>{TYPE_LABELS[incident.type]}</strong><small>{INCIDENT_STATUS_LABELS[incident.status] ?? incident.status}{incident.distanceMeters == null ? '' : ` · ${formatDistance(incident.distanceMeters)}`}</small></span>
+                      </button>
+                    ))}
+                  </section>
                 </>
               )}
               <footer className={styles.sidebarFooter}><span>© OpenStreetMap</span><span>RoadPulse · Web</span></footer>
             </aside>
             <section className={styles.mapStage} aria-label="Carte des environs">
-              <ApplicationMap origin={origin} destination={destination} routeCoordinates={routeCoordinates} incidents={incidents} onMapPick={chooseMapPoint} />
-              <div className={styles.mapBadge}><span className={styles.liveDot} /> Antananarivo <span>·</span> Trafic communautaire</div>
+              <ApplicationMap
+                origin={origin}
+                destination={destination}
+                routeCoordinates={routeCoordinates}
+                incidents={mapIncidents}
+                traffic={trafficSegments}
+                onMapPick={chooseMapPoint}
+                onPressIncident={setSelectedIncidentId}
+              />
+              <div className={styles.mapBadge}>
+                <span className={`${styles.liveDot} ${trafficStatus === 'OK' ? '' : trafficStatus === 'ERREUR' ? styles.liveDotError : styles.liveDotWarning}`} /> Antananarivo <span>·</span>
+                {trafficStatus === 'OK' ? `${trafficSegments.length} tronçons mesurés` : trafficStatus === 'DONNEES_INSUFFISANTES' ? 'Données trafic insuffisantes' : trafficStatus === 'ERREUR' ? 'Trafic indisponible' : 'Chargement du trafic'}
+              </div>
               <button type="button" className={styles.mapLocate} onClick={locateMe} aria-label="Centrer sur ma position" title="Centrer sur ma position"><LocateFixed size={19} /></button>
             </section>
           </>
@@ -416,14 +516,14 @@ export default function ApplicationPage() {
 
         {tab === 'history' && (
           <section className={styles.contentPanel}>
-            <div className={styles.contentHeading}><span className={styles.eyebrow}>SUR CET APPAREIL</span><h1>Historique des trajets</h1><p>Les résumés sont conservés localement dans ce navigateur.</p></div>
+            <div className={styles.contentHeading}><span className={styles.eyebrow}>SUR CET APPAREIL · 30 JOURS</span><h1>Aperçus de trajets</h1><p>Le navigateur ne suit pas une navigation GPS en arrière-plan; ces entrées sont des aperçus locaux, pas des traces de trajets réels.</p></div>
             {trips.length === 0 ? (
-              <div className={styles.emptyState}><Clock3 size={27} /><strong>Aucun trajet enregistré</strong><span>Les trajets terminés depuis l’aperçu apparaîtront ici.</span></div>
+              <div className={styles.emptyState}><Clock3 size={27} /><strong>Aucun aperçu enregistré</strong><span>Les aperçus terminés apparaîtront ici.</span></div>
             ) : (
               <div className={styles.tripList}>{trips.map((trip) => (
                 <article key={trip.id} className={styles.tripRow}>
                   <span className={styles.tripIcon}><Navigation size={18} /></span>
-                  <div className={styles.tripMain}><strong>{trip.destination}</strong><span>{new Date(trip.startedAt).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+                  <div className={styles.tripMain}><strong>Aperçu vers {trip.destination}</strong><span>{new Date(trip.startedAt).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
                   <div className={styles.tripMetric}><strong>{formatDuration(trip.durationSeconds)}</strong><span>{formatDistance(trip.distanceMeters)}</span></div>
                   <button className={styles.iconButton} type="button" onClick={() => removeTrip(trip.id)} aria-label="Supprimer le trajet"><Trash2 size={16} /></button>
                 </article>
@@ -436,19 +536,56 @@ export default function ApplicationPage() {
           <section className={styles.contentPanel}>
             <div className={styles.contentHeading}><span className={styles.eyebrow}>VOS CHOIX</span><h1>Confidentialité</h1><p>Gérez les données de ce navigateur et vos contributions serveur.</p></div>
             <div className={styles.privacyRow}>
-              <div><strong>Contribuer aux statistiques de trafic</strong><p>La collecte reste désactivée si vous ne donnez pas votre accord.</p></div>
+              <div><strong>Contribuer aux statistiques de trafic</strong><p>{consent === true ? 'Votre accord est actif.' : 'Aucun accord actif n’est confirmé par le serveur. La navigation reste indépendante de ce choix.'}</p></div>
               <label className={styles.switch}>
-                <input type="checkbox" checked={consent} onChange={(event) => void updateConsent(event.target.checked)} aria-label="Contribuer aux statistiques de trafic" />
+                <input type="checkbox" checked={consent === true} onChange={(event) => void updateConsent(event.target.checked)} aria-label="Contribuer aux statistiques de trafic" />
                 <span />
               </label>
             </div>
             <div className={styles.privacySection}><h2>Données serveur</h2><p>Une demande nécessite une connexion au backend. L’historique local peut être supprimé trajet par trajet.</p>
               <button type="button" className={styles.deleteButton} onClick={() => void requestDataDeletion()}><Trash2 size={16} /> Demander la suppression de mes données serveur</button>
             </div>
+            {deletionRequests.length > 0 && (
+              <div className={styles.deletionList}>
+                <h2>Demandes de suppression</h2>
+                {deletionRequests.map((request) => (
+                  <div key={request.id} className={styles.deletionRow}>
+                    <strong>{request.types.join(', ')}</strong>
+                    <span>{DELETION_STATUS_LABELS[request.status]} · {new Date(request.createdAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className={styles.privacyFootnote}>Identifiant local de cette installation : <code>{installationId ? `${installationId.slice(0, 8)}…` : 'initialisation'}</code></div>
           </section>
         )}
       </div>
+
+      {selectedIncident && (
+        <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIncidentId(null); }}>
+          <section className={styles.reportModal} role="dialog" aria-modal="true" aria-labelledby="incident-title">
+            <div className={styles.modalHeading}>
+              <div><span className={styles.eyebrow}>INCIDENT COMMUNAUTAIRE</span><h2 id="incident-title">{TYPE_LABELS[selectedIncident.type]}</h2></div>
+              <button type="button" className={styles.iconButton} onClick={() => setSelectedIncidentId(null)} aria-label="Fermer"><X size={19} /></button>
+            </div>
+            <p className={styles.incidentDescription}>{selectedIncident.description || 'Aucun détail fourni.'}</p>
+            <div className={styles.incidentFacts}>
+              <span>{INCIDENT_STATUS_LABELS[selectedIncident.status] ?? selectedIncident.status}</span>
+              <span>Confiance {Math.round(selectedIncident.confidence * 100)} %</span>
+              <span>{selectedIncident.reporterCount} signalement(s)</span>
+              <span>{selectedIncident.confirmationCount} confirmation(s) · {selectedIncident.contestationCount} contestation(s)</span>
+            </div>
+            {selectedIncident.myResponse ? (
+              <p className={styles.alreadyResponded}>Votre réponse : {selectedIncident.myResponse === 'REPORTER' ? 'vous avez signalé cet incident' : selectedIncident.myResponse === 'CONFIRMATION' ? 'confirmé' : 'contesté'}.</p>
+            ) : ['DETECTE', 'CONFIRME', 'EN_COURS'].includes(selectedIncident.status) ? (
+              <div className={styles.incidentActions}>
+                <button type="button" className={styles.primaryButton} onClick={() => void respondToIncident('CONFIRMATION')}><Check size={16} /> Confirmer</button>
+                <button type="button" className={styles.deleteButton} onClick={() => void respondToIncident('CONTESTATION')}>Contester</button>
+              </div>
+            ) : <p className={styles.alreadyResponded}>Cet incident n’est plus actif.</p>}
+          </section>
+        </div>
+      )}
 
       {reportOpen && (
         <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setReportOpen(false); }}>
@@ -462,7 +599,8 @@ export default function ApplicationPage() {
             <label className={styles.fieldLabel}>Détail <span className={styles.optional}>facultatif</span>
               <textarea value={reportDescription} onChange={(event) => setReportDescription(event.target.value)} maxLength={240} rows={3} placeholder="Précisez la situation…" />
             </label>
-            <div className={styles.reportLocation}><MapPin size={15} /> Position : {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}</div>
+            <div className={styles.reportLocation}><MapPin size={15} /> Position : {originLabel} · {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}</div>
+            {originLabel !== 'Ma position' && <button type="button" className={styles.locationAction} onClick={locateMe}><LocateFixed size={15} /> Utiliser ma position réelle</button>}
             <button type="submit" className={styles.primaryButton}><TriangleAlert size={17} /> Envoyer le signalement</button>
           </form>
         </div>

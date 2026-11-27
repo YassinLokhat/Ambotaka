@@ -10,6 +10,8 @@ export interface AppConfig {
   maxGpsAccuracyMeters: number;
   jwtSecret: string;
   mapLanguage: string;
+  adminBootstrapUsername: string;
+  adminBootstrapPassword: string;
 }
 
 const requiredProductionVariables = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'METRICS_TOKEN', 'MAP_API_KEY'];
@@ -38,5 +40,7 @@ export default (): AppConfig => {
     maxGpsAccuracyMeters: parseInt(process.env.MAX_GPS_ACCURACY_METERS ?? '100', 10),
     // Obligatoire (≥ 32 car.) en production ; valeur de développement uniquement hors production.
     jwtSecret: process.env.JWT_SECRET ?? (nodeEnv === 'production' ? '' : 'dev-only-secret-change-me-dev-only-secret'),
+    adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME?.trim() ?? '',
+    adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? '',
   };
 };

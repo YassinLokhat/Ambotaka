@@ -69,7 +69,9 @@ L'état de session fait foi en local ; les endpoints serveur de sessions viendro
 
 ## Lot 8 : console d'administration et supervision
 
-**Premier administrateur** (amorçage, après `npm run migrate`) :
+**Premier administrateur** (automatique au démarrage de l'API après les migrations) : définir `ADMIN_BOOTSTRAP_USERNAME` (3–32 caractères : a-z, 0-9, `.`, `_`, `-`) et `ADMIN_BOOTSTRAP_PASSWORD` (12 caractères minimum) dans l'environnement du backend. Le compte reçoit le rôle `SUPER_ADMIN` uniquement si la base ne contient encore aucun administrateur ; les comptes existants et leurs mots de passe ne sont jamais modifiés. Retirer ces variables après la création initiale. Aucun identifiant ni mot de passe par défaut n'est codé dans l'application.
+
+Création manuelle alternative (après `npm run migrate`) :
 ```bash
 cd backend && node scripts/create-admin.js mon.admin 'un-mot-de-passe-de-12-caracteres-min'
 ```
