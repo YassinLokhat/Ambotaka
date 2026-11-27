@@ -16,13 +16,26 @@ Ce document liste **ce qui reste à faire hors du code**. Les éléments marqué
 
 ## 2. Backend
 
+### Déployer sur Render sans Docker
+
+Le Blueprint [`render.yaml`](../render.yaml) déclare l'API NestJS en runtime Node natif, Render Postgres et Render Key Value (compatible Redis/Valkey). Il n'utilise ni le Dockerfile du backend ni `docker-compose.yml`.
+
+1. Pousser `dev` sur GitHub, puis dans Render choisir **New > Blueprint** et connecter le dépôt/la branche `dev`.
+2. Vérifier les ressources et leurs coûts avant de confirmer : ce Blueprint choisit les plans payants `0.5c-512mb` (API), `0.5c-1g` (Postgres) et `256mb` (Key Value), dans la région Singapore.
+3. Lors de la première synchronisation, saisir `MAP_API_KEY` comme secret. `JWT_SECRET` et `METRICS_TOKEN` sont générés par Render. La clé TomTom serveur ne doit jamais être mise dans le dépôt.
+4. Render compile l'API, lance `npm run migrate` avant le démarrage et vérifie `/api/v1/health` (Postgres **et** Redis doivent répondre). La migration active PostGIS, disponible sur Render Postgres.
+5. Après le premier déploiement, ouvrir le Shell du service `roadpulse-api` et créer le premier administrateur : `node scripts/create-admin.js <identifiant> '<mot de passe ≥ 12 caractères>'`.
+6. Utiliser l'URL `https://roadpulse-api.onrender.com/api/v1` comme `EXPO_PUBLIC_API_URL` dans les profils EAS. Pour héberger aussi `admin-web`, définir son `BACKEND_URL` sur cette URL avec `/api/v1`.
+
+Les plans gratuits ne sont pas adaptés à des données durables : le service web s'endort, la base Postgres gratuite expire après 30 jours et le Key Value gratuit perd ses données lors d'un redémarrage. Les prix exacts dépendent de Render et sont affichés avant la création. Le backend peut rester sur Render natif même si Docker est retiré du flux de déploiement; les fichiers Docker existants peuvent être conservés pour un usage local.
+
 - [ ] PostgreSQL 16 **avec PostGIS** ; `npm run migrate` ; Redis (réservé pour BullMQ / limiteurs : voir paramètre `monitor.redisEnabled`).
 - [ ] Variables : `DATABASE_URL`, `JWT_SECRET` (≥ 32 caractères : `openssl rand -base64 48`), `METRICS_TOKEN`, `MAP_*`, `CORS_ORIGINS`, `TRUST_PROXY` (nombre de proxys), `NODE_ENV=production`.
 - [ ] HTTPS devant l'API (reverse proxy) ; l'API ne parle qu'en HTTP en interne.
 - [ ] Importer le **réseau routier d'Antananarivo** : `node backend/scripts/import-segments.js roads.geojson 150` (export OpenStreetMap). Sans lui, aucune mesure de trafic.
 - [ ] Créer le premier administrateur : `node backend/scripts/create-admin.js <identifiant> '<mot de passe ≥ 12 car.>'`.
 - [ ] Sauvegardes : planifier `infrastructure/scripts/backup.sh` (cron), **chiffrer et copier hors serveur**, et **tester la restauration** (`restore.sh`) sur une base vide au moins une fois avant le pilote. Aller-retour validé en local (6 migrations, données et PostGIS restaurés à l'identique).
-- [ ] Supervision : `docker compose --profile monitoring up` (Prometheus + Grafana) ; créer les tableaux de bord Grafana (aucun n'est fourni).
+- [ ] Supervision : protéger `/api/v1/metrics` avec `METRICS_TOKEN` (fourni par Render) et configurer un collecteur Prometheus externe si nécessaire ; aucun service Prometheus/Grafana n'est créé par le Blueprint.
 
 ## 3. Console d'administration (`admin-web`)
 
@@ -52,6 +65,6 @@ Ce document liste **ce qui reste à faire hors du code**. Les éléments marqué
 - Aucun essai sur téléphone ou émulateur (build natif, GPS arrière-plan, notifications, rendu de la carte).
 - Aucun appel réel à TomTom (formats lus dans la documentation, testés avec des réponses simulées) : le script ci-dessus est fait pour combler ce manque.
 - Pas de test de charge, pas d'audit de sécurité externe, pas de test d'intrusion.
-- Pas de Dockerfile pour la console web ; pas de CD (déploiement automatique).
+- Le Blueprint Render déploie l'API depuis `dev` ; la console `admin-web` et l'application Android ne sont pas incluses dans ce déploiement.
 - Les alertes techniques sont visibles dans la console uniquement (pas de courriel/SMS).
 - Pas de suivi GPS garanti en arrière-plan (limites Android) ; navigation hors ligne non disponible (cartes hors ligne non validées).
